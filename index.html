@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring kWh Meter KWS-AC301 & ESP32</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#ecfeff',
+                            100: '#cffaff',
+                            500: '#06b6d4',
+                            600: '#0891b2',
+                            900: '#164e63',
+                        },
+                        darkcard: '#0f172a',
+                        darkbg: '#020617'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #020617;
+            color: #f8fafc;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(51, 65, 85, 0.5);
+        }
+        .info-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            padding: 0;
+            margin: 0;
+            line-height: 1;
+            color: #64748b;
+            cursor: pointer;
+            transition: color .15s ease;
+        }
+        .info-icon-btn:hover,
+        .info-icon-btn:focus-visible {
+            color: #22d3ee;
+            outline: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between antialiased">
+
+    <div>
+        <!-- Navbar Header -->
+        <header class="glass-panel sticky top-0 z-40 border-b border-slate-800 px-4 lg:px-8 py-3">
+            <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+                
+                <!-- Title & Status -->
+                <div class="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+                    <div class="p-2.5 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-lg">
+                        <i data-lucide="zap" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h1 class="font-bold text-lg text-slate-100 leading-tight">IoT kWh Meter</h1>
+                            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800">KWS-AC301</span>
+                        </div>
+                        <p class="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                            <span>Project Akhir ESP32</span>
+                            <span>•</span>
+                            <span id="live-time" class="text-slate-300 font-mono">--:--:--</span>
+                            <span>•</span>
+                            <span id="last-update-text" class="text-slate-500">Menunggu data...</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Right Side Controls -->
+                <div class="flex items-center gap-3 w-full sm:w-auto justify-end">
+                    
+                    <!-- Connection Badge -->
+                    <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-medium">
+                        <span class="relative flex h-2.5 w-2.5">
+                            <span id="status-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 hidden"></span>
+                            <span id="status-dot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                        </span>
+                        <span id="status-text">ESP32 Belum Terhubung</span>
+                    </div>
+
+                    <!-- Config Modal Trigger Button -->
+                    <button id="btn-open-settings" class="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition" title="Pengaturan Polling">
+                        <i data-lucide="settings" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Wrapper -->
+        <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+            
+            <!-- Connection Warning Banner -->
+            <div id="conn-warning-banner" class="glass-panel border-l-4 border-rose-500 bg-rose-950/40 p-4 rounded-2xl flex items-center justify-between transition-all duration-300">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/30">
+                        <i data-lucide="wifi-off" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-rose-200">ESP32 Belum Terhubung</h4>
+                        <p class="text-xs text-rose-300/80 mt-0.5">Data telemetri tidak ditampilkan. Pastikan modul ESP32 Anda telah menyala dan terhubung ke Wi-Fi / Cloud Firebase.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Summary Bar -->
+            <div>
+                <h2 class="font-bold text-slate-100 text-base flex items-center gap-2">
+                    <i data-lucide="layout-dashboard" class="w-4 h-4 text-cyan-400"></i>
+                    Ringkasan Utama
+                </h2>
+                <p class="text-xs text-slate-400 mt-0.5">Sekilas kondisi kelistrikan Anda saat ini</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <div class="glass-panel p-4 rounded-2xl flex items-center gap-4">
+                    <div class="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                        <i data-lucide="activity" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium">Beban Daya Aktif</p>
+                        <h3 id="summary-power" class="text-xl font-bold text-slate-100 font-mono mt-0.5">-- W</h3>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 rounded-2xl flex items-center gap-4">
+                    <div class="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                        <i data-lucide="gauge" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium">Total Akumulasi kWh</p>
+                        <h3 id="summary-energy" class="text-xl font-bold text-slate-100 font-mono mt-0.5">-- kWh</h3>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 rounded-2xl flex items-center gap-4">
+                    <div class="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                        <i data-lucide="banknote" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium">Total Biaya Pemakaian</p>
+                        <h3 id="summary-cost" class="text-xl font-bold text-slate-100 font-mono mt-0.5">Rp 0</h3>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 rounded-2xl flex items-center gap-4">
+                    <div class="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                        <i data-lucide="percent" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 font-medium flex items-center gap-1">
+                            Power Factor (PF)
+                            <button type="button" class="info-icon-btn" data-info-title="Power Factor (PF)" data-info-msg="Ukuran efisiensi pemakaian listrik. Semakin dekat ke 1.0, semakin hemat dan efisien." aria-label="Info Power Factor (PF)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </p>
+                        <h3 id="summary-pf" class="text-xl font-bold text-slate-100 font-mono mt-0.5">--</h3>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Parameter Cards Grid (6 Key Electrical Parameters) -->
+            <div>
+                <h2 class="font-bold text-slate-100 text-base flex items-center gap-2">
+                    <i data-lucide="list-tree" class="w-4 h-4 text-cyan-400"></i>
+                    Detail Parameter Kelistrikan
+                </h2>
+                <p class="text-xs text-slate-400 mt-0.5">Informasi teknis lebih rinci untuk setiap parameter yang diukur</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                
+                <!-- 1. Tegangan (Voltage) -->
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                            Tegangan (V)
+                            <button type="button" class="info-icon-btn" data-info-title="Tegangan (V)" data-info-msg="Besarnya potensial listrik pada instalasi Anda. Nilai normal PLN sekitar 220 Volt. Jika terlalu rendah, peralatan bisa bekerja tidak optimal." aria-label="Info Tegangan (V)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <i data-lucide="zap" class="w-4 h-4 text-cyan-400"></i>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="card-val-v" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span class="text-sm font-medium text-slate-400">Volt</span>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                        <span>Status Tegangan</span>
+                        <span id="card-status-v" class="text-slate-400 font-medium">--</span>
+                    </div>
+                </div>
+
+                <!-- 2. Arus (Current) -->
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                            Arus Listrik (A)
+                            <button type="button" class="info-icon-btn" data-info-title="Arus Listrik (A)" data-info-msg="Besarnya aliran listrik yang melewati kabel Anda. Semakin besar arus, semakin besar pula beban peralatan yang menyala." aria-label="Info Arus Listrik (A)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <i data-lucide="activity" class="w-4 h-4 text-cyan-400"></i>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="card-val-i" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span class="text-sm font-medium text-slate-400">Ampere</span>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                        <span class="flex items-center gap-1">
+                            Beban Puncak CT
+                            <button type="button" class="info-icon-btn" data-info-title="Beban Puncak CT" data-info-msg="CT (Current Transformer) adalah sensor arus pada alat ini. Nilai ini adalah batas maksimum arus yang bisa diukur." aria-label="Info Beban Puncak CT"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <span id="card-peak-i" class="text-slate-300 font-mono">100.0 A Max</span>
+                    </div>
+                </div>
+
+                <!-- 3. Daya (Power) -->
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                            Daya Aktif (W)
+                            <button type="button" class="info-icon-btn" data-info-title="Daya Aktif (W)" data-info-msg="Jumlah energi yang benar-benar dipakai peralatan Anda setiap detik, dihitung dari Tegangan x Arus x Power Factor." aria-label="Info Daya Aktif (W)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="card-val-p" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span class="text-sm font-medium text-slate-400">Watt</span>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                        <span class="flex items-center gap-1">
+                            Formula
+                            <button type="button" class="info-icon-btn" data-info-title="Formula Daya" data-info-msg="Daya listrik dihitung dari Tegangan x Arus x Power Factor (V x I x PF)." aria-label="Info Formula Daya"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <span class="text-slate-400 font-mono">V × I × PF</span>
+                    </div>
+                </div>
+
+                <!-- 4. Total Energi (kWh) -->
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                            Total Energi
+                            <button type="button" class="info-icon-btn" data-info-title="Total Energi (kWh)" data-info-msg="Akumulasi seluruh pemakaian listrik dari waktu ke waktu dalam satuan kilowatt-jam (kWh). Nilai ini menjadi dasar perhitungan biaya listrik Anda." aria-label="Info Total Energi (kWh)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <i data-lucide="battery-charging" class="w-4 h-4 text-cyan-400"></i>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="card-val-kwh" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span class="text-sm font-medium text-slate-400">kWh</span>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                        <span>Reset Terakhir</span>
+                        <button id="btn-reset-kwh" class="text-rose-400 hover:text-rose-300 font-medium underline">Reset kWh</button>
+                    </div>
+                </div>
+
+                <!-- 5. Frekuensi (Hz) -->
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                            Frekuensi (Hz)
+                            <button type="button" class="info-icon-btn" data-info-title="Frekuensi (Hz)" data-info-msg="Jumlah siklus gelombang listrik per detik. Standar jaringan listrik PLN di Indonesia adalah 50 Hz." aria-label="Info Frekuensi (Hz)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <i data-lucide="waves" class="w-4 h-4 text-cyan-400"></i>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="card-val-hz" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span class="text-sm font-medium text-slate-400">Hz</span>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                        <span>Grid Standar</span>
+                        <span class="text-slate-300">50.0 Hz PLN</span>
+                    </div>
+                </div>
+
+                <!-- 6. Power Factor (PF) -->
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                    <div class="flex items-center justify-between text-slate-400 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                            Power Factor (PF)
+                            <button type="button" class="info-icon-btn" data-info-title="Power Factor (PF)" data-info-msg="Rasio efisiensi pemakaian listrik. Nilai ideal mendekati 1.0 (satu) — semakin rendah, semakin banyak energi yang terbuang sia-sia." aria-label="Info Power Factor (PF)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                        </span>
+                        <i data-lucide="percent" class="w-4 h-4 text-cyan-400"></i>
+                    </div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="card-val-pf" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span class="text-sm font-medium text-slate-400">Cos φ</span>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                        <span>Efisiensi Daya</span>
+                        <span id="card-pf-quality" class="text-slate-400 font-medium">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Separate Real-time Charts Section -->
+            <div class="space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                        <h2 class="font-bold text-slate-100 text-lg flex items-center gap-2">
+                            <i data-lucide="line-chart" class="w-5 h-5 text-cyan-400"></i>
+                            Grafik Analisis Terpisah
+                        </h2>
+                        <p class="text-xs text-slate-400">Visualisasi independen untuk Daya Aktif, Arus Listrik, dan Tegangan</p>
+                    </div>
+                    <button id="btn-clear-charts" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-xl text-xs font-medium transition self-start sm:self-auto">
+                        Bersihkan Semua Grafik
+                    </button>
+                </div>
+
+                <!-- Grid of 3 Independent Charts -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    <!-- Chart 1: Daya Aktif (W) -->
+                    <div class="glass-panel p-4 rounded-2xl space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                            <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Grafik Daya Aktif (Watt)
+                            </span>
+                            <span id="latest-p-val" class="text-xs font-mono text-slate-300 font-semibold">0.0 W</span>
+                        </div>
+                        <div class="w-full h-[220px] relative">
+                            <canvas id="chartPower"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: Arus Listrik (A) -->
+                    <div class="glass-panel p-4 rounded-2xl space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                            <span class="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-indigo-400"></span> Grafik Arus Listrik (Ampere)
+                            </span>
+                            <span id="latest-i-val" class="text-xs font-mono text-slate-300 font-semibold">0.000 A</span>
+                        </div>
+                        <div class="w-full h-[220px] relative">
+                            <canvas id="chartCurrent"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 3: Tegangan (V) -->
+                    <div class="glass-panel p-4 rounded-2xl space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                            <span class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-cyan-400"></span> Grafik Tegangan Listrik (Volt)
+                            </span>
+                            <span id="latest-v-val" class="text-xs font-mono text-slate-300 font-semibold">0.0 V</span>
+                        </div>
+                        <div class="w-full h-[220px] relative">
+                            <canvas id="chartVoltage"></canvas>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Electricity Calculator -->
+            <div class="glass-panel p-5 rounded-2xl flex flex-col justify-between space-y-4">
+                <div>
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <h2 class="font-bold text-slate-100 flex items-center gap-2">
+                            <i data-lucide="calculator" class="w-5 h-5 text-emerald-400"></i>
+                            Kalkulator Proyeksi Biaya Beban PLN
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 uppercase tracking-wide">Simulasi</span>
+                        </h2>
+                        <span class="text-xs text-slate-400">Estimasi Pemakaian Kontinu</span>
+                    </div>
+
+                    <!-- Tariff Selectors & Inputs -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label class="text-xs font-medium text-slate-300 mb-1 block">Golongan Tarif PLN</label>
+                            <select id="select-tariff" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                                <option value="1444.70">R-1/TR 1.300 VA (Rp 1.444,70 / kWh)</option>
+                                <option value="1444.70">R-1/TR 2.200 VA (Rp 1.444,70 / kWh)</option>
+                                <option value="1699.53">R-2/TR 3.500 VA - 5.500 VA (Rp 1.699,53 / kWh)</option>
+                                <option value="1699.53">R-3/TR 6.600 VA ke atas (Rp 1.699,53 / kWh)</option>
+                                <option value="1352.00">R-1/TR 900 VA Subsidi (Rp 1.352,00 / kWh)</option>
+                                <option value="custom">Kustomisasi Tarif...</option>
+                            </select>
+                        </div>
+
+                        <div id="custom-tariff-box" class="hidden">
+                            <label class="text-xs font-medium text-slate-300 mb-1 block">Tarif Per kWh (Rp)</label>
+                            <input type="number" id="input-custom-tariff" value="1444.70" step="10" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+                        </div>
+                    </div>
+
+                    <!-- Cost Breakdown Grid -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800/80">
+                            <span class="text-[11px] text-slate-400 block">Proyeksi / Jam</span>
+                            <span id="calc-cost-hour" class="text-sm font-semibold font-mono text-slate-200 mt-1 block">Rp 0</span>
+                        </div>
+                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800/80">
+                            <span class="text-[11px] text-slate-400 block">Proyeksi / Hari (24 Jam)</span>
+                            <span id="calc-cost-day" class="text-sm font-semibold font-mono text-slate-200 mt-1 block">Rp 0</span>
+                        </div>
+                        <div class="p-3 bg-gradient-to-br from-emerald-950/40 to-slate-900 rounded-xl border border-emerald-900/50">
+                            <span class="text-[11px] text-emerald-400 font-semibold block">Proyeksi / Bulan (30 Hari)</span>
+                            <span id="calc-cost-month" class="text-base font-bold font-mono text-emerald-400 mt-0.5 block">Rp 0</span>
+                        </div>
+                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800/80">
+                            <span class="text-[11px] text-slate-400 block">Proyeksi / Tahun</span>
+                            <span id="calc-cost-year" class="text-sm font-semibold font-mono text-slate-200 mt-1 block">Rp 0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-slate-500 leading-tight">
+                    *Angka ini adalah <span class="text-amber-400 font-medium">simulasi</span>, bukan tagihan resmi PLN. Perhitungan mengasumsikan beban konstan berdasarkan pemakaian Watt saat ini selama 24 jam nonstop.
+                </p>
+            </div>
+
+            <!-- Telemetry History Log Table -->
+            <div class="glass-panel p-5 rounded-2xl space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-slate-100 text-sm flex items-center gap-2">
+                            <i data-lucide="database" class="w-4 h-4 text-amber-400"></i>
+                            Log Riwayat Telemetri Real-Time
+                        </h3>
+                        <p class="text-xs text-slate-400">Catatan sampel data parameter kelistrikan secara berkala</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="btn-clear-logs" class="px-3 py-1.5 bg-rose-950/80 hover:bg-rose-900/80 text-rose-300 border border-rose-800 rounded-xl text-xs font-medium flex items-center gap-1.5 transition hover:text-white">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            Reset History
+                        </button>
+                        <button id="btn-export-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium flex items-center gap-1.5 transition border border-slate-700">
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                            Ekspor CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Table Container (Desktop/Tablet) -->
+                <div class="overflow-x-auto hidden sm:block">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead class="bg-slate-900/80 text-slate-400 font-medium border-b border-slate-800">
+                            <tr>
+                                <th class="py-2.5 px-3">Waktu</th>
+                                <th class="py-2.5 px-3">Tegangan (V)</th>
+                                <th class="py-2.5 px-3">Arus (A)</th>
+                                <th class="py-2.5 px-3">Daya (W)</th>
+                                <th class="py-2.5 px-3">Energy (kWh)</th>
+                                <th class="py-2.5 px-3">Frekuensi (Hz)</th>
+                                <th class="py-2.5 px-3">Power Factor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-table-body" class="divide-y divide-slate-800/60 font-mono">
+                            <!-- Dynamic Log Rows Inserted by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Card List (Mobile) -->
+                <div id="log-cards-mobile" class="sm:hidden space-y-2">
+                    <!-- Dynamic Log Cards Inserted by JS -->
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer class="max-w-7xl mx-auto px-4 lg:px-8 py-6 text-center text-xs text-slate-500 border-t border-slate-800/80 w-full mt-8">
+        <p class="flex items-center justify-center gap-1.5 flex-wrap">
+            Dashboard Monitoring KWS-AC301 & ESP32
+            <button type="button" class="info-icon-btn underline decoration-dotted !text-slate-500 hover:!text-cyan-400 text-xs"
+                data-info-title="Modbus RTU"
+                data-info-msg="Protokol komunikasi standar industri yang dipakai ESP32 untuk membaca data dari alat ukur listrik.">
+                Modbus RTU
+            </button>
+            • Sistem Kelistrikan IoT
+        </p>
+    </footer>
+
+    <!-- Modal Configuration ESP32 -->
+    <div id="modal-settings" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm hidden">
+        <div class="glass-panel max-w-md w-full rounded-2xl p-6 space-y-4 border border-slate-800 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-slate-100 flex items-center gap-2">
+                    <i data-lucide="sliders" class="w-5 h-5 text-cyan-400"></i>
+                    Pengaturan Dashboard
+                </h3>
+                <button id="btn-close-modal" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="font-medium text-slate-300 mb-1 block">Interval Polling Data (Detik)</label>
+                    <input type="number" id="setting-poll-interval" value="1.0" min="0.1" max="60" step="0.1" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+                    <p class="text-[10px] text-slate-500 mt-1">Kecepatan pembaruan data dari Cloud ke dashboard.</p>
+                </div>
+
+                <!-- Proteksi Overload Arus (Relay) -->
+                <div class="pt-4 mt-1 border-t border-slate-800/80">
+                    <div class="flex items-center gap-2 mb-3">
+                        <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i>
+                        <h4 class="font-semibold text-slate-200 text-[11px] uppercase tracking-wider">Proteksi Overload Arus (Relay)</h4>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 mb-3">
+                        <div>
+                            <p class="text-slate-400 font-medium">Status Relay Saat Ini</p>
+                            <p id="card-status-relay-text" class="text-sm font-bold font-mono text-slate-300 mt-0.5">--</p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Rangkaian: <span id="card-relay-action" class="text-slate-400 font-medium">--</span></p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3" title="Indikator status relay (read-only)">
+                            <input type="checkbox" id="toggle-relay" class="sr-only peer" disabled>
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+                        </label>
+                    </div>
+
+                    <div>
+                        <label class="font-medium text-slate-300 mb-1 block">Ambang Batas Proteksi Arus</label>
+                        <div class="relative">
+                            <input type="number" id="setting-overload-limit" value="5.0" min="0.1" step="0.1" class="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3 pr-14 py-2 text-slate-200 focus:outline-none focus:border-rose-500 font-mono">
+                            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono tracking-wide">AMPERE</span>
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-1">Nilai referensi yang ditampilkan di dashboard. Samakan dengan batas yang diprogram pada firmware ESP32 agar status overload konsisten antara alat dan tampilan.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button id="btn-save-settings" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-medium transition">Simpan Pengaturan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Action Modal (Reset kWh / Reset History) -->
+    <div id="modal-confirm" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm hidden">
+        <div class="glass-panel max-w-sm w-full rounded-2xl p-6 space-y-4 border border-rose-900/50 shadow-2xl">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-rose-500/10 text-rose-400 rounded-xl border border-rose-500/30 shrink-0">
+                    <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                </div>
+                <h3 id="confirm-title" class="font-bold text-slate-100 text-sm">Konfirmasi Tindakan</h3>
+            </div>
+            <p id="confirm-message" class="text-xs text-slate-400 leading-relaxed"></p>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button id="btn-confirm-cancel" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition">Batal</button>
+                <button id="btn-confirm-ok" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-medium transition">Ya, Lanjutkan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Popup Modal (Penjelasan Parameter/Istilah) -->
+    <div id="modal-info" class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm hidden">
+        <div class="glass-panel max-w-sm w-full rounded-2xl p-6 space-y-4 border border-cyan-900/50 shadow-2xl">
+            <div class="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/30 shrink-0">
+                        <i data-lucide="info" class="w-5 h-5"></i>
+                    </div>
+                    <h3 id="info-title" class="font-bold text-slate-100 text-sm">Judul</h3>
+                </div>
+                <button id="btn-info-close-x" class="text-slate-400 hover:text-white p-1 shrink-0">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <p id="info-message" class="text-xs text-slate-400 leading-relaxed"></p>
+            <div class="flex items-center justify-end pt-2 border-t border-slate-800">
+                <button id="btn-info-close" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-medium transition">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // System State
+        const state = {
+            voltage: 0.0,
+            current: 0.0,
+            power: 0.0,
+            energy: 0.0,
+            frequency: 0.0,
+            pf: 0.0,
+            overload: false,
+            overloadLimit: 5.0,
+            lastUpdateAt: null,
+            espUrl: 'https://monitoring-listrik-82199-default-rtdb.asia-southeast1.firebasedatabase.app/monitoring.json',
+            pollInterval: 1.0,
+            tariffPerKWh: 1444.70,
+            isConnected: null,
+            lastSeenValue: null,
+            lastSeenChangeTime: null,
+            chartBufferLength: 20
+        };
+
+        // DOM Element Cache
+        const el = {
+            liveTime: document.getElementById('live-time'),
+            statusBadge: document.getElementById('status-badge'),
+            statusText: document.getElementById('status-text'),
+            statusPing: document.getElementById('status-ping'),
+            statusDot: document.getElementById('status-dot'),
+            connWarningBanner: document.getElementById('conn-warning-banner'),
+            
+            // Cards
+            cardV: document.getElementById('card-val-v'),
+            cardI: document.getElementById('card-val-i'),
+            cardP: document.getElementById('card-val-p'),
+            cardKwh: document.getElementById('card-val-kwh'),
+            cardHz: document.getElementById('card-val-hz'),
+            cardPf: document.getElementById('card-val-pf'),
+            cardStatusV: document.getElementById('card-status-v'),
+            cardPfQuality: document.getElementById('card-pf-quality'),
+
+            // Relay Overload Elements
+            toggleRelay: document.getElementById('toggle-relay'),
+            cardStatusRelayText: document.getElementById('card-status-relay-text'),
+            cardRelayAction: document.getElementById('card-relay-action'),
+            
+            // Summary
+            sumPower: document.getElementById('summary-power'),
+            sumEnergy: document.getElementById('summary-energy'),
+            sumCost: document.getElementById('summary-cost'),
+            sumPf: document.getElementById('summary-pf'),
+
+            // Calculator
+            selectTariff: document.getElementById('select-tariff'),
+            customTariffBox: document.getElementById('custom-tariff-box'),
+            inputCustomTariff: document.getElementById('input-custom-tariff'),
+            costHour: document.getElementById('calc-cost-hour'),
+            costDay: document.getElementById('calc-cost-day'),
+            costMonth: document.getElementById('calc-cost-month'),
+            costYear: document.getElementById('calc-cost-year'),
+
+            // Chart Labels
+            latestPVal: document.getElementById('latest-p-val'),
+            latestIVal: document.getElementById('latest-i-val'),
+            latestVVal: document.getElementById('latest-v-val'),
+            btnClearCharts: document.getElementById('btn-clear-charts'),
+
+            // Settings Modal
+            modalSettings: document.getElementById('modal-settings'),
+            btnOpenSettings: document.getElementById('btn-open-settings'),
+            btnCloseModal: document.getElementById('btn-close-modal'),
+            settingPollInterval: document.getElementById('setting-poll-interval'),
+            settingOverloadLimit: document.getElementById('setting-overload-limit'),
+            btnSaveSettings: document.getElementById('btn-save-settings'),
+
+            // Other
+            btnResetKwh: document.getElementById('btn-reset-kwh'),
+            btnClearLogs: document.getElementById('btn-clear-logs'),
+            btnExportCsv: document.getElementById('btn-export-csv'),
+            logTableBody: document.getElementById('log-table-body'),
+            logCardsMobile: document.getElementById('log-cards-mobile'),
+            lastUpdateText: document.getElementById('last-update-text'),
+
+            // Info Popup Modal
+            modalInfo: document.getElementById('modal-info'),
+            infoTitle: document.getElementById('info-title'),
+            infoMessage: document.getElementById('info-message'),
+            btnInfoClose: document.getElementById('btn-info-close'),
+            btnInfoCloseX: document.getElementById('btn-info-close-x'),
+
+            // Confirm Modal
+            modalConfirm: document.getElementById('modal-confirm'),
+            confirmTitle: document.getElementById('confirm-title'),
+            confirmMessage: document.getElementById('confirm-message'),
+            btnConfirmCancel: document.getElementById('btn-confirm-cancel'),
+            btnConfirmOk: document.getElementById('btn-confirm-ok'),
+            toastContainer: document.getElementById('toast-container')
+        };
+
+        const telemetryLogs = [];
+
+        // Single Chart Creator
+        function createSingleChart(canvasId, label, colorHex, fillGradient, minZero = false) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            const yScaleConfig = {
+                grid: { color: 'rgba(51, 65, 85, 0.25)' },
+                ticks: { color: '#94a3b8', font: { size: 9 } }
+            };
+
+            if (minZero) {
+                yScaleConfig.min = 0;
+                yScaleConfig.beginAtZero = true;
+            }
+
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: label,
+                        data: [],
+                        borderColor: colorHex,
+                        backgroundColor: fillGradient(ctx),
+                        fill: true,
+                        tension: 0.35,
+                        borderWidth: 2,
+                        pointRadius: 2.5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 150 },
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(51, 65, 85, 0.25)' },
+                            ticks: { display: false }
+                        },
+                        y: yScaleConfig
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        const chartPower = createSingleChart('chartPower', 'Daya Aktif (W)', '#10b981', (ctx) => {
+            const g = ctx.createLinearGradient(0, 0, 0, 200);
+            g.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
+            g.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+            return g;
+        }, true);
+
+        const chartCurrent = createSingleChart('chartCurrent', 'Arus Listrik (A)', '#818cf8', (ctx) => {
+            const g = ctx.createLinearGradient(0, 0, 0, 200);
+            g.addColorStop(0, 'rgba(129, 140, 248, 0.35)');
+            g.addColorStop(1, 'rgba(129, 140, 248, 0.0)');
+            return g;
+        });
+
+        const chartVoltage = createSingleChart('chartVoltage', 'Tegangan (V)', '#06b6d4', (ctx) => {
+            const g = ctx.createLinearGradient(0, 0, 0, 200);
+            g.addColorStop(0, 'rgba(6, 182, 212, 0.35)');
+            g.addColorStop(1, 'rgba(6, 182, 212, 0.0)');
+            return g;
+        });
+
+        // Helper: Format Currency IDR
+        function formatIDR(amount) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
+        }
+
+        // Custom Toast Notification System
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            const bgClass = type === 'success' ? 'bg-emerald-900 border-emerald-700 text-emerald-200' :
+                             type === 'error' ? 'bg-rose-900 border-rose-700 text-rose-200' :
+                             'bg-slate-900 border-slate-700 text-slate-200';
+            
+            toast.className = `pointer-events-auto px-4 py-3 rounded-xl border text-xs shadow-xl backdrop-blur-md transition-all duration-300 transform translate-y-2 opacity-0 flex items-center gap-2 ${bgClass}`;
+            toast.innerHTML = `<span>${message}</span>`;
+            
+            el.toastContainer.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // Update Clock
+        function updateClock() {
+            const now = new Date();
+            el.liveTime.textContent = now.toLocaleTimeString('id-ID');
+            updateLastUpdateText();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Menampilkan "Diperbarui X detik lalu" berdasarkan data terakhir masuk
+        function updateLastUpdateText() {
+            if (!state.isConnected || !state.lastUpdateAt) {
+                el.lastUpdateText.textContent = state.isConnected === false ? 'Data terputus' : 'Menunggu data...';
+                return;
+            }
+            const diffSec = Math.floor((Date.now() - state.lastUpdateAt) / 1000);
+            if (diffSec < 2) {
+                el.lastUpdateText.textContent = 'Diperbarui baru saja';
+            } else if (diffSec < 60) {
+                el.lastUpdateText.textContent = `Diperbarui ${diffSec} detik lalu`;
+            } else {
+                el.lastUpdateText.textContent = `Diperbarui ${Math.floor(diffSec / 60)} menit lalu`;
+            }
+        }
+
+        // Status Connection UI Switcher
+        function setConnectionStatus(online, text) {
+            const previousState = state.isConnected;
+            state.isConnected = online;
+            el.statusText.textContent = text;
+
+            if (online) {
+                el.statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-400 text-xs font-medium";
+                el.statusPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+                el.statusDot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500";
+                el.connWarningBanner.classList.add('hidden');
+
+                if (previousState !== true) {
+                    showToast('ESP32 Berhasil Terhubung!', 'success');
+                }
+            } else {
+                el.statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-950/80 border border-rose-800 text-rose-400 text-xs font-medium";
+                el.statusPing.className = "hidden";
+                el.statusDot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500";
+                el.connWarningBanner.classList.remove('hidden');
+
+                blankOutUI();
+
+                if (previousState !== false) {
+                    showToast('ESP32 Belum Terhubung', 'error');
+                }
+            }
+        }
+
+        // Tampilan Kosong/Blank Jika ESP32 Belum Terhubung
+        function blankOutUI() {
+            el.cardV.textContent = '--';
+            el.cardI.textContent = '--';
+            el.cardP.textContent = '--';
+            el.cardKwh.textContent = '--';
+            el.cardHz.textContent = '--';
+            el.cardPf.textContent = '--';
+
+            el.cardStatusV.textContent = '--';
+            el.cardStatusV.className = 'text-slate-400 font-medium';
+            el.cardPfQuality.textContent = '--';
+            el.cardPfQuality.className = 'text-slate-400 font-medium';
+
+            el.toggleRelay.checked = false;
+            el.cardStatusRelayText.textContent = '--';
+            el.cardStatusRelayText.className = 'text-sm font-bold font-mono text-slate-300';
+            el.cardRelayAction.textContent = '--';
+            el.cardRelayAction.className = 'text-slate-400 font-medium';
+
+            el.sumPower.textContent = '-- W';
+            el.sumEnergy.textContent = '-- kWh';
+            el.sumCost.textContent = 'Rp 0';
+            el.sumPf.textContent = '--';
+
+            el.costHour.textContent = 'Rp 0';
+            el.costDay.textContent = 'Rp 0';
+            el.costMonth.textContent = 'Rp 0';
+            el.costYear.textContent = 'Rp 0';
+        }
+
+        // Render Data Telemetri di UI jika Terhubung
+        function updateUI() {
+            if (!state.isConnected) return;
+
+            el.cardV.textContent = state.voltage.toFixed(1);
+            el.cardI.textContent = state.current.toFixed(3);
+            el.cardP.textContent = state.power.toFixed(1);
+            el.cardKwh.textContent = state.energy.toFixed(3);
+            el.cardHz.textContent = state.frequency.toFixed(1);
+            el.cardPf.textContent = state.pf.toFixed(2);
+
+            el.cardStatusV.textContent = state.voltage > 200 ? 'Normal' : 'Rendah/Mati';
+            el.cardStatusV.className = state.voltage > 200 ? 'text-emerald-400 font-medium' : 'text-amber-400 font-medium';
+
+            if (state.pf >= 0.85) {
+                el.cardPfQuality.textContent = 'Sangat Baik (>0.85)';
+                el.cardPfQuality.className = 'text-emerald-400 font-medium';
+            } else {
+                el.cardPfQuality.textContent = 'Rendah (<0.85)';
+                el.cardPfQuality.className = 'text-amber-400 font-medium';
+            }
+
+            // Update Status Slide Switch Relay Overload
+            if (state.overload) {
+                el.toggleRelay.checked = true;
+                el.cardStatusRelayText.textContent = 'OVERLOAD TRIGGERED!';
+                el.cardStatusRelayText.className = 'text-sm font-bold font-mono text-rose-400';
+                el.cardRelayAction.textContent = 'Terbuka (TRIP / OFF)';
+                el.cardRelayAction.className = 'text-rose-400 font-medium';
+            } else {
+                el.toggleRelay.checked = false;
+                el.cardStatusRelayText.textContent = 'Normal (Aman)';
+                el.cardStatusRelayText.className = 'text-sm font-bold font-mono text-emerald-400';
+                el.cardRelayAction.textContent = 'Tertutup (ON)';
+                el.cardRelayAction.className = 'text-emerald-400 font-medium';
+            }
+
+            el.sumPower.textContent = `${state.power.toFixed(1)} W`;
+            el.sumEnergy.textContent = `${state.energy.toFixed(3)} kWh`;
+            el.sumPf.textContent = state.pf.toFixed(2);
+
+            const totalBiayaPemakaian = state.energy * state.tariffPerKWh;
+            el.sumCost.textContent = formatIDR(totalBiayaPemakaian);
+
+            el.latestPVal.textContent = `${state.power.toFixed(1)} W`;
+            el.latestIVal.textContent = `${state.current.toFixed(3)} A`;
+            el.latestVVal.textContent = `${state.voltage.toFixed(1)} V`;
+
+            const kW = state.power / 1000;
+            const costPerHour = kW * state.tariffPerKWh;
+            const costPerDay = costPerHour * 24;
+            const costPerMonth = costPerDay * 30;
+            const costPerYear = costPerDay * 365;
+
+            el.costHour.textContent = formatIDR(costPerHour);
+            el.costDay.textContent = formatIDR(costPerDay);
+            el.costMonth.textContent = formatIDR(costPerMonth);
+            el.costYear.textContent = formatIDR(costPerYear);
+
+            const timeLabel = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            updateIndividualChart(chartPower, timeLabel, state.power);
+            updateIndividualChart(chartCurrent, timeLabel, state.current);
+            updateIndividualChart(chartVoltage, timeLabel, state.voltage);
+
+            addLogRecord(timeLabel);
+        }
+
+        function updateIndividualChart(chartObj, timeLabel, newValue) {
+            if (chartObj.data.labels.length >= state.chartBufferLength) {
+                chartObj.data.labels.shift();
+                chartObj.data.datasets[0].data.shift();
+            }
+            chartObj.data.labels.push(timeLabel);
+            chartObj.data.datasets[0].data.push(newValue);
+            chartObj.update();
+        }
+
+        function addLogRecord(timeStr) {
+            const logEntry = {
+                time: timeStr,
+                v: state.voltage.toFixed(1),
+                i: state.current.toFixed(3),
+                p: state.power.toFixed(1),
+                kwh: state.energy.toFixed(3),
+                hz: state.frequency.toFixed(1),
+                pf: state.pf.toFixed(2)
+            };
+
+            telemetryLogs.unshift(logEntry);
+            if (telemetryLogs.length > 10) telemetryLogs.pop();
+
+            el.logTableBody.innerHTML = telemetryLogs.map(log => `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="py-2 px-3 text-slate-400">${log.time}</td>
+                    <td class="py-2 px-3 text-cyan-400 font-semibold">${log.v} V</td>
+                    <td class="py-2 px-3 text-indigo-400">${log.i} A</td>
+                    <td class="py-2 px-3 text-emerald-400 font-medium">${log.p} W</td>
+                    <td class="py-2 px-3 text-amber-400">${log.kwh}</td>
+                    <td class="py-2 px-3 text-teal-400">${log.hz} Hz</td>
+                    <td class="py-2 px-3 text-blue-400">${log.pf}</td>
+                </tr>
+            `).join('');
+
+            // Versi ringkas untuk layar mobile (menggantikan tabel yang sempit)
+            el.logCardsMobile.innerHTML = telemetryLogs.map(log => `
+                <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-slate-400">${log.time}</span>
+                        <span class="text-cyan-400 font-mono font-semibold">${log.p} W</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 font-mono text-slate-300">
+                        <div><span class="text-slate-500 block text-[10px]">Tegangan</span>${log.v} V</div>
+                        <div><span class="text-slate-500 block text-[10px]">Arus</span>${log.i} A</div>
+                        <div><span class="text-slate-500 block text-[10px]">PF</span>${log.pf}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ESP32 Polling Engine dengan Heartbeat Checker
+        async function fetchESP32Data() {
+            try {
+                const response = await fetch(state.espUrl, { method: 'GET', cache: 'no-cache' });
+                if (!response.ok) throw new Error('HTTP Error ' + response.status);
+
+                const data = await response.json();
+                
+                if (data && typeof data === 'object') {
+                    const now = Date.now();
+
+                    if (data.last_seen !== undefined) {
+                        if (data.last_seen !== state.lastSeenValue) {
+                            state.lastSeenValue = data.last_seen;
+                            state.lastSeenChangeTime = now;
+                        }
+
+                        if (now - state.lastSeenChangeTime > 6000) {
+                            setConnectionStatus(false, 'ESP32 Belum Terhubung');
+                            return;
+                        }
+                    }
+
+                    state.voltage = data.voltage ?? 0.0;
+                    state.current = data.current ?? 0.0;
+                    state.power = data.power ?? (state.voltage * state.current * (data.pf ?? 0.95));
+                    state.energy = data.energy ?? 0.0;
+                    state.frequency = data.frequency ?? 0.0;
+                    state.pf = data.pf ?? 0.0;
+                    state.overload = data.overload ?? false; // Status Overload dari Firebase
+
+                    state.lastUpdateAt = Date.now();
+                    setConnectionStatus(true, 'ESP32 Terhubung');
+                    updateUI();
+                } else {
+                    setConnectionStatus(false, 'Data Firebase Kosong');
+                }
+            } catch (err) {
+                setConnectionStatus(false, 'ESP32 Belum Terhubung');
+            }
+        }
+
+        let dataLoopInterval;
+
+        function startDataLoop() {
+            if (dataLoopInterval) clearInterval(dataLoopInterval);
+            
+            fetchESP32Data();
+
+            const intervalMs = state.pollInterval * 1000;
+            dataLoopInterval = setInterval(() => {
+                fetchESP32Data();
+            }, intervalMs);
+        }
+
+        // Tariff Selector Handler
+        el.selectTariff.addEventListener('change', (e) => {
+            if (e.target.value === 'custom') {
+                el.customTariffBox.classList.remove('hidden');
+                state.tariffPerKWh = parseFloat(el.inputCustomTariff.value) || 1444.70;
+            } else {
+                el.customTariffBox.classList.add('hidden');
+                state.tariffPerKWh = parseFloat(e.target.value);
+            }
+            if (state.isConnected) updateUI();
+            showToast(`Tarif diubah: Rp ${state.tariffPerKWh.toLocaleString('id-ID')}/kWh`, 'success');
+        });
+
+        el.inputCustomTariff.addEventListener('input', (e) => {
+            state.tariffPerKWh = parseFloat(e.target.value) || 0;
+            if (state.isConnected) updateUI();
+        });
+
+        // Clear All Charts
+        el.btnClearCharts.addEventListener('click', () => {
+            [chartPower, chartCurrent, chartVoltage].forEach(chart => {
+                chart.data.labels = [];
+                chart.data.datasets[0].data = [];
+                chart.update();
+            });
+            showToast('Ketiga grafik berhasil dibersihkan', 'info');
+        });
+
+        // Settings Modal Handlers
+        el.btnOpenSettings.addEventListener('click', () => el.modalSettings.classList.remove('hidden'));
+        el.btnCloseModal.addEventListener('click', () => el.modalSettings.classList.add('hidden'));
+
+        el.btnSaveSettings.addEventListener('click', () => {
+            state.pollInterval = parseFloat(el.settingPollInterval.value) || 1.0;
+            state.overloadLimit = parseFloat(el.settingOverloadLimit.value) || 5.0;
+
+            el.modalSettings.classList.add('hidden');
+            startDataLoop();
+            showToast(`Pengaturan disimpan! Interval polling: ${state.pollInterval} detik, Ambang overload: ${state.overloadLimit} A`, 'success');
+        });
+
+        // ===== Info Popup (Penjelasan Istilah/Parameter) =====
+        function showInfoModal(title, message) {
+            el.infoTitle.textContent = title;
+            el.infoMessage.textContent = message;
+            el.modalInfo.classList.remove('hidden');
+        }
+        function closeInfoModal() {
+            el.modalInfo.classList.add('hidden');
+        }
+        el.btnInfoClose.addEventListener('click', closeInfoModal);
+        el.btnInfoCloseX.addEventListener('click', closeInfoModal);
+        el.modalInfo.addEventListener('click', (e) => {
+            if (e.target === el.modalInfo) closeInfoModal();
+        });
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.info-icon-btn');
+            if (btn) {
+                showInfoModal(btn.dataset.infoTitle, btn.dataset.infoMsg);
+            }
+        });
+
+        // ===== Modal Konfirmasi untuk Aksi yang Tidak Bisa Dibatalkan =====
+        let confirmCallback = null;
+        function askConfirm(title, message, onConfirm) {
+            el.confirmTitle.textContent = title;
+            el.confirmMessage.textContent = message;
+            confirmCallback = onConfirm;
+            el.modalConfirm.classList.remove('hidden');
+        }
+        el.btnConfirmCancel.addEventListener('click', () => {
+            el.modalConfirm.classList.add('hidden');
+            confirmCallback = null;
+        });
+        el.btnConfirmOk.addEventListener('click', () => {
+            el.modalConfirm.classList.add('hidden');
+            const cb = confirmCallback;
+            confirmCallback = null;
+            if (cb) cb();
+        });
+
+        // Reset kWh Counter via Cloud
+        async function performResetKwh() {
+            state.energy = 0.00;
+            if (state.isConnected) updateUI();
+
+            try {
+                const resetEndpoint = 'https://monitoring-listrik-82199-default-rtdb.asia-southeast1.firebasedatabase.app/monitoring/reset.json';
+                await fetch(resetEndpoint, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(true)
+                });
+                showToast('Perintah Reset kWh berhasil dikirim!', 'info');
+            } catch (e) {
+                showToast('Gagal mengirim perintah reset ke Cloud', 'error');
+            }
+        }
+        el.btnResetKwh.addEventListener('click', () => {
+            askConfirm(
+                'Reset Akumulasi kWh?',
+                'Total energi (kWh) akan dikembalikan ke 0 dan tidak bisa dikembalikan. Lanjutkan?',
+                performResetKwh
+            );
+        });
+
+        // Reset Log History Table
+        function performClearLogs() {
+            telemetryLogs.length = 0;
+            el.logTableBody.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-slate-500 italic">Riwayat log telah dibersihkan</td></tr>`;
+            el.logCardsMobile.innerHTML = `<p class="py-4 text-center text-slate-500 italic text-xs">Riwayat log telah dibersihkan</p>`;
+            showToast('Riwayat log telemetri berhasil di-reset', 'info');
+        }
+        el.btnClearLogs.addEventListener('click', () => {
+            askConfirm(
+                'Hapus Riwayat Log?',
+                'Seluruh riwayat telemetri yang tersimpan di tabel akan dihapus secara permanen. Lanjutkan?',
+                performClearLogs
+            );
+        });
+
+        // Export Logs to CSV
+        el.btnExportCsv.addEventListener('click', () => {
+            if (telemetryLogs.length === 0) {
+                showToast('Belum ada data riwayat untuk diekspor', 'error');
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,Waktu,Tegangan_V,Arus_A,Daya_W,Energy_kWh,Frekuensi_Hz,PowerFactor\n";
+            telemetryLogs.forEach(row => {
+                csvContent += `${row.time},${row.v},${row.i},${row.p},${row.kwh},${row.hz},${row.pf}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `kws_ac301_telemetry_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showToast('File CSV berhasil diunduh', 'success');
+        });
+
+        // Startup Boot
+        window.addEventListener('DOMContentLoaded', () => {
+            blankOutUI();
+            startDataLoop();
+        });
+    </script>
+</body>
+</html>
