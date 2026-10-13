@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoring kWh Meter KWS-AC301 & ESP32</title>
+    <title>Monitoring & Control kWh Meter KWS-AC301 & ESP32</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -32,7 +32,7 @@
     <!-- Google Fonts Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Lucide Icons -->
@@ -80,6 +80,14 @@
             color: #22d3ee;
             outline: none;
         }
+        @keyframes pulse-red {
+            0%, 100% { border-color: rgba(244, 63, 94, 0.8); box-shadow: 0 0 15px rgba(244, 63, 94, 0.4); }
+            50% { border-color: rgba(225, 29, 72, 0.3); box-shadow: 0 0 2px rgba(225, 29, 72, 0.1); }
+        }
+        .alert-overload-active {
+            animation: pulse-red 1.5s infinite;
+            background: rgba(136, 19, 55, 0.35) !important;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col justify-between antialiased">
@@ -96,11 +104,11 @@
                     </div>
                     <div>
                         <div class="flex items-center gap-2">
-                            <h1 class="font-bold text-lg text-slate-100 leading-tight">IoT kWh Meter</h1>
+                            <h1 class="font-bold text-lg text-slate-100 leading-tight">IoT Smart kWh Meter</h1>
                             <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800">KWS-AC301</span>
                         </div>
                         <p class="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                            <span>Project Akhir ESP32</span>
+                            <span>Sistem Proteksi & Monitoring</span>
                             <span>•</span>
                             <span id="live-time" class="text-slate-300 font-mono">--:--:--</span>
                             <span>•</span>
@@ -109,9 +117,15 @@
                     </div>
                 </div>
 
-                <!-- Right Side Controls -->
+                <!-- Right Side Controls & Wi-Fi Status -->
                 <div class="flex items-center gap-3 w-full sm:w-auto justify-end">
                     
+                    <!-- Wi-Fi RSSI Badge -->
+                    <div id="wifi-rssi-badge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-mono">
+                        <i data-lucide="wifi" class="w-3.5 h-3.5 text-cyan-400"></i>
+                        <span id="wifi-rssi-val">-68 dBm</span>
+                    </div>
+
                     <!-- Connection Badge -->
                     <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-medium">
                         <span class="relative flex h-2.5 w-2.5">
@@ -122,7 +136,7 @@
                     </div>
 
                     <!-- Config Modal Trigger Button -->
-                    <button id="btn-open-settings" class="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition" title="Pengaturan Polling">
+                    <button id="btn-open-settings" class="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition" title="Pengaturan & Ambang Overload">
                         <i data-lucide="settings" class="w-4 h-4"></i>
                     </button>
                 </div>
@@ -132,15 +146,74 @@
         <!-- Main Content Wrapper -->
         <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
             
-            <!-- Connection Warning Banner -->
+            <!-- Connection & Overload Dynamic Banner -->
             <div id="conn-warning-banner" class="glass-panel border-l-4 border-rose-500 bg-rose-950/40 p-4 rounded-2xl flex items-center justify-between transition-all duration-300">
                 <div class="flex items-center gap-3">
-                    <div class="p-2 bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/30">
-                        <i data-lucide="wifi-off" class="w-6 h-6"></i>
+                    <div id="banner-icon-bg" class="p-2 bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/30">
+                        <i id="banner-icon" data-lucide="wifi-off" class="w-6 h-6"></i>
                     </div>
                     <div>
-                        <h4 class="text-sm font-bold text-rose-200">ESP32 Belum Terhubung</h4>
-                        <p class="text-xs text-rose-300/80 mt-0.5">Data telemetri tidak ditampilkan. Pastikan modul ESP32 Anda telah menyala dan terhubung ke Wi-Fi / Cloud Firebase.</p>
+                        <h4 id="banner-title" class="text-sm font-bold text-rose-200">ESP32 Belum Terhubung</h4>
+                        <p id="banner-desc" class="text-xs text-rose-300/80 mt-0.5">Data telemetri tidak ditampilkan. Pastikan modul ESP32 Anda telah menyala dan terhubung ke Wi-Fi / Cloud Firebase.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: RELAY CONTROL & SELF-TEST PANEL (FITUR KHUSUS UJI RELAY) -->
+            <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-cyan-500 space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                    <div>
+                        <h2 class="font-bold text-slate-100 text-base flex items-center gap-2">
+                            <i data-lucide="toggle-right" class="w-5 h-5 text-cyan-400"></i>
+                            Kontrol & Uji Fungsionalitas Relay
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 uppercase tracking-wide">Dual Function</span>
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Gunakan panel ini untuk menguji fungsionalitas relay fisik secara manual dari web, atau memantau trip otomatis akibat overload arus.</p>
+                    </div>
+                    
+                    <!-- Relay State Badge -->
+                    <div class="flex items-center gap-2 self-start sm:self-auto">
+                        <span class="text-xs text-slate-400">Status Output Relay:</span>
+                        <span id="badge-relay-state" class="px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-xs font-mono font-bold">
+                            OFF (NORMAL)
+                        </span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Function 1: Virtual Switch Test -->
+                    <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div class="space-y-1">
+                            <span class="text-xs font-bold text-slate-200 block flex items-center gap-1.5">
+                                <i data-lucide="check-circle-2" class="w-4 h-4 text-cyan-400"></i>
+                                1. Pengujian Keberfungsian Relay (Self-Test)
+                            </span>
+                            <p class="text-[11px] text-slate-400 leading-relaxed">
+                                Aktifkan sakelar ini untuk menguji apakah fisik relay merespons perintah *toggle* dari dashboard web secara *real-time*.
+                            </p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
+                            <input type="checkbox" id="toggle-virtual-switch" class="sr-only peer">
+                            <div class="w-12 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                        </label>
+                    </div>
+
+                    <!-- Function 2: Overload Protection Monitor -->
+                    <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div class="space-y-1">
+                            <span class="text-xs font-bold text-slate-200 block flex items-center gap-1.5">
+                                <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i>
+                                2. Proteksi Arus Berlebih (Overload Clock/Trip)
+                            </span>
+                            <p class="text-[11px] text-slate-400 leading-relaxed">
+                                Batas Beban: <span id="label-current-limit" class="text-cyan-400 font-mono font-bold">5.0 A</span>. Jika arus riil melebihi batas ini, relay akan otomatis *TRIP/CLOCK*.
+                            </p>
+                        </div>
+                        <div class="text-right shrink-0 ml-3">
+                            <span id="badge-overload-status" class="px-2.5 py-1 rounded-lg bg-emerald-950/80 text-emerald-400 border border-emerald-800 text-[11px] font-mono font-semibold">
+                                AMAN
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -151,7 +224,7 @@
                     <i data-lucide="layout-dashboard" class="w-4 h-4 text-cyan-400"></i>
                     Ringkasan Utama
                 </h2>
-                <p class="text-xs text-slate-400 mt-0.5">Sekilas kondisi kelistrikan Anda saat ini</p>
+                <p class="text-xs text-slate-400 mt-0.5">Sekilas kondisi kelistrikan dan estimasi beban energi saat ini</p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 
@@ -185,16 +258,17 @@
                     </div>
                 </div>
 
+                <!-- NEW: CO2 Emission Footprint Card -->
                 <div class="glass-panel p-4 rounded-2xl flex items-center gap-4">
-                    <div class="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
-                        <i data-lucide="percent" class="w-6 h-6"></i>
+                    <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                        <i data-lucide="leaf" class="w-6 h-6"></i>
                     </div>
                     <div>
                         <p class="text-xs text-slate-400 font-medium flex items-center gap-1">
-                            Power Factor (PF)
-                            <button type="button" class="info-icon-btn" data-info-title="Power Factor (PF)" data-info-msg="Ukuran efisiensi pemakaian listrik. Semakin dekat ke 1.0, semakin hemat dan efisien." aria-label="Info Power Factor (PF)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                            Ekor Karbon (CO₂)
+                            <button type="button" class="info-icon-btn" data-info-title="Estimasi Emisi Karbon" data-info-msg="Estimasi jejak karbon yang dihasilkan dari pemakaian listrik berdasarkan faktor emisi rata-rata PLN (0.85 kg CO₂/kWh)." aria-label="Info CO2"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
                         </p>
-                        <h3 id="summary-pf" class="text-xl font-bold text-slate-100 font-mono mt-0.5">--</h3>
+                        <h3 id="summary-co2" class="text-xl font-bold text-slate-100 font-mono mt-0.5">0.00 kg</h3>
                     </div>
                 </div>
 
@@ -204,9 +278,9 @@
             <div>
                 <h2 class="font-bold text-slate-100 text-base flex items-center gap-2">
                     <i data-lucide="list-tree" class="w-4 h-4 text-cyan-400"></i>
-                    Detail Parameter Kelistrikan
+                    Detail Parameter Kelistrikan Real-Time
                 </h2>
-                <p class="text-xs text-slate-400 mt-0.5">Informasi teknis lebih rinci untuk setiap parameter yang diukur</p>
+                <p class="text-xs text-slate-400 mt-0.5">Informasi teknis lebih rinci untuk setiap parameter yang diukur oleh KWS-AC301</p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 
@@ -215,7 +289,7 @@
                     <div class="flex items-center justify-between text-slate-400 mb-2">
                         <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
                             Tegangan (V)
-                            <button type="button" class="info-icon-btn" data-info-title="Tegangan (V)" data-info-msg="Besarnya potensial listrik pada instalasi Anda. Nilai normal PLN sekitar 220 Volt. Jika terlalu rendah, peralatan bisa bekerja tidak optimal." aria-label="Info Tegangan (V)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" class="info-icon-btn" data-info-title="Tegangan (V)" data-info-msg="Besarnya potensial listrik pada instalasi Anda. Nilai normal PLN sekitar 220 Volt." aria-label="Info Tegangan (V)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
                         </span>
                         <i data-lucide="zap" class="w-4 h-4 text-cyan-400"></i>
                     </div>
@@ -229,80 +303,81 @@
                     </div>
                 </div>
 
-                <!-- 2. Arus (Current) -->
-                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                <!-- 2. Arus (Current) - WITH CAPACITY PROGRESS BAR -->
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-indigo-500">
                     <div class="flex items-center justify-between text-slate-400 mb-2">
                         <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
                             Arus Listrik (A)
-                            <button type="button" class="info-icon-btn" data-info-title="Arus Listrik (A)" data-info-msg="Besarnya aliran listrik yang melewati kabel Anda. Semakin besar arus, semakin besar pula beban peralatan yang menyala." aria-label="Info Arus Listrik (A)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" class="info-icon-btn" data-info-title="Arus Listrik (A)" data-info-msg="Besarnya aliran listrik yang melewati kabel. Dibatasi oleh batas proteksi overload." aria-label="Info Arus Listrik (A)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
                         </span>
-                        <i data-lucide="activity" class="w-4 h-4 text-cyan-400"></i>
+                        <i data-lucide="activity" class="w-4 h-4 text-indigo-400"></i>
                     </div>
                     <div class="flex items-baseline gap-2">
-                        <span id="card-val-i" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span id="card-val-i" class="text-3xl font-extrabold font-mono text-indigo-400">--</span>
                         <span class="text-sm font-medium text-slate-400">Ampere</span>
                     </div>
-                    <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                        <span class="flex items-center gap-1">
-                            Beban Puncak CT
-                            <button type="button" class="info-icon-btn" data-info-title="Beban Puncak CT" data-info-msg="CT (Current Transformer) adalah sensor arus pada alat ini. Nilai ini adalah batas maksimum arus yang bisa diukur." aria-label="Info Beban Puncak CT"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
-                        </span>
-                        <span id="card-peak-i" class="text-slate-300 font-mono">100.0 A Max</span>
+                    
+                    <!-- Progress Bar Kapasitas Arus -->
+                    <div class="mt-3 pt-2 border-t border-slate-800/80 space-y-1.5">
+                        <div class="flex justify-between text-[11px] text-slate-400">
+                            <span>Beban terhadap Limit</span>
+                            <span id="i-progress-text" class="font-mono">0%</span>
+                        </div>
+                        <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div id="i-progress-bar" class="h-full bg-cyan-400 transition-all duration-300" style="width: 0%"></div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 3. Daya (Power) -->
-                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-emerald-500">
                     <div class="flex items-center justify-between text-slate-400 mb-2">
                         <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
                             Daya Aktif (W)
-                            <button type="button" class="info-icon-btn" data-info-title="Daya Aktif (W)" data-info-msg="Jumlah energi yang benar-benar dipakai peralatan Anda setiap detik, dihitung dari Tegangan x Arus x Power Factor." aria-label="Info Daya Aktif (W)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" class="info-icon-btn" data-info-title="Daya Aktif (W)" data-info-msg="Jumlah energi yang benar-benar dipakai peralatan setiap detik." aria-label="Info Daya Aktif (W)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
                         </span>
-                        <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
+                        <i data-lucide="cpu" class="w-4 h-4 text-emerald-400"></i>
                     </div>
                     <div class="flex items-baseline gap-2">
-                        <span id="card-val-p" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span id="card-val-p" class="text-3xl font-extrabold font-mono text-emerald-400">--</span>
                         <span class="text-sm font-medium text-slate-400">Watt</span>
                     </div>
                     <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                        <span class="flex items-center gap-1">
-                            Formula
-                            <button type="button" class="info-icon-btn" data-info-title="Formula Daya" data-info-msg="Daya listrik dihitung dari Tegangan x Arus x Power Factor (V x I x PF)." aria-label="Info Formula Daya"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
-                        </span>
+                        <span>Formula</span>
                         <span class="text-slate-400 font-mono">V × I × PF</span>
                     </div>
                 </div>
 
                 <!-- 4. Total Energi (kWh) -->
-                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-amber-500">
                     <div class="flex items-center justify-between text-slate-400 mb-2">
                         <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
                             Total Energi
-                            <button type="button" class="info-icon-btn" data-info-title="Total Energi (kWh)" data-info-msg="Akumulasi seluruh pemakaian listrik dari waktu ke waktu dalam satuan kilowatt-jam (kWh). Nilai ini menjadi dasar perhitungan biaya listrik Anda." aria-label="Info Total Energi (kWh)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" class="info-icon-btn" data-info-title="Total Energi (kWh)" data-info-msg="Akumulasi seluruh pemakaian listrik dari waktu ke waktu." aria-label="Info Total Energi (kWh)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
                         </span>
-                        <i data-lucide="battery-charging" class="w-4 h-4 text-cyan-400"></i>
+                        <i data-lucide="battery-charging" class="w-4 h-4 text-amber-400"></i>
                     </div>
                     <div class="flex items-baseline gap-2">
-                        <span id="card-val-kwh" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span id="card-val-kwh" class="text-3xl font-extrabold font-mono text-amber-400">--</span>
                         <span class="text-sm font-medium text-slate-400">kWh</span>
                     </div>
                     <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                        <span>Reset Terakhir</span>
+                        <span>Reset Virtual</span>
                         <button id="btn-reset-kwh" class="text-rose-400 hover:text-rose-300 font-medium underline">Reset kWh</button>
                     </div>
                 </div>
 
                 <!-- 5. Frekuensi (Hz) -->
-                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-teal-500">
                     <div class="flex items-center justify-between text-slate-400 mb-2">
                         <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
                             Frekuensi (Hz)
-                            <button type="button" class="info-icon-btn" data-info-title="Frekuensi (Hz)" data-info-msg="Jumlah siklus gelombang listrik per detik. Standar jaringan listrik PLN di Indonesia adalah 50 Hz." aria-label="Info Frekuensi (Hz)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" class="info-icon-btn" data-info-title="Frekuensi (Hz)" data-info-msg="Jumlah siklus gelombang listrik per detik. Standar PLN adalah 50 Hz." aria-label="Info Frekuensi (Hz)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
                         </span>
-                        <i data-lucide="waves" class="w-4 h-4 text-cyan-400"></i>
+                        <i data-lucide="waves" class="w-4 h-4 text-teal-400"></i>
                     </div>
                     <div class="flex items-baseline gap-2">
-                        <span id="card-val-hz" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span id="card-val-hz" class="text-3xl font-extrabold font-mono text-teal-400">--</span>
                         <span class="text-sm font-medium text-slate-400">Hz</span>
                     </div>
                     <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
@@ -312,16 +387,16 @@
                 </div>
 
                 <!-- 6. Power Factor (PF) -->
-                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-cyan-500">
+                <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group border-t-2 border-t-blue-500">
                     <div class="flex items-center justify-between text-slate-400 mb-2">
                         <span class="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
                             Power Factor (PF)
-                            <button type="button" class="info-icon-btn" data-info-title="Power Factor (PF)" data-info-msg="Rasio efisiensi pemakaian listrik. Nilai ideal mendekati 1.0 (satu) — semakin rendah, semakin banyak energi yang terbuang sia-sia." aria-label="Info Power Factor (PF)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
+                            <button type="button" class="info-icon-btn" data-info-title="Power Factor (PF)" data-info-msg="Rasio efisiensi pemakaian listrik (0.00 - 1.00)." aria-label="Info Power Factor (PF)"><i data-lucide="info" class="w-3.5 h-3.5"></i></button>
                         </span>
-                        <i data-lucide="percent" class="w-4 h-4 text-cyan-400"></i>
+                        <i data-lucide="percent" class="w-4 h-4 text-blue-400"></i>
                     </div>
                     <div class="flex items-baseline gap-2">
-                        <span id="card-val-pf" class="text-3xl font-extrabold font-mono text-cyan-400">--</span>
+                        <span id="card-val-pf" class="text-3xl font-extrabold font-mono text-blue-400">--</span>
                         <span class="text-sm font-medium text-slate-400">Cos φ</span>
                     </div>
                     <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
@@ -339,7 +414,7 @@
                             <i data-lucide="line-chart" class="w-5 h-5 text-cyan-400"></i>
                             Grafik Analisis Terpisah
                         </h2>
-                        <p class="text-xs text-slate-400">Visualisasi independen untuk Daya Aktif, Arus Listrik, dan Tegangan</p>
+                        <p class="text-xs text-slate-400">Visualisasi independen real-time untuk Daya Aktif, Arus Listrik, dan Tegangan</p>
                     </div>
                     <button id="btn-clear-charts" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded-xl text-xs font-medium transition self-start sm:self-auto">
                         Bersihkan Semua Grafik
@@ -353,7 +428,7 @@
                     <div class="glass-panel p-4 rounded-2xl space-y-3">
                         <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
                             <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Grafik Daya Aktif (Watt)
+                                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Daya Aktif (Watt)
                             </span>
                             <span id="latest-p-val" class="text-xs font-mono text-slate-300 font-semibold">0.0 W</span>
                         </div>
@@ -366,7 +441,7 @@
                     <div class="glass-panel p-4 rounded-2xl space-y-3">
                         <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
                             <span class="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
-                                <span class="w-2 h-2 rounded-full bg-indigo-400"></span> Grafik Arus Listrik (Ampere)
+                                <span class="w-2 h-2 rounded-full bg-indigo-400"></span> Arus Listrik (Ampere)
                             </span>
                             <span id="latest-i-val" class="text-xs font-mono text-slate-300 font-semibold">0.000 A</span>
                         </div>
@@ -379,7 +454,7 @@
                     <div class="glass-panel p-4 rounded-2xl space-y-3">
                         <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
                             <span class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
-                                <span class="w-2 h-2 rounded-full bg-cyan-400"></span> Grafik Tegangan Listrik (Volt)
+                                <span class="w-2 h-2 rounded-full bg-cyan-400"></span> Tegangan Listrik (Volt)
                             </span>
                             <span id="latest-v-val" class="text-xs font-mono text-slate-300 font-semibold">0.0 V</span>
                         </div>
@@ -445,7 +520,7 @@
                 </div>
 
                 <p class="text-[11px] text-slate-500 leading-tight">
-                    *Angka ini adalah <span class="text-amber-400 font-medium">simulasi</span>, bukan tagihan resmi PLN. Perhitungan mengasumsikan beban konstan berdasarkan pemakaian Watt saat ini selama 24 jam nonstop.
+                    *Angka ini adalah <span class="text-amber-400 font-medium">simulasi</span>. Perhitungan mengasumsikan beban konstan berdasarkan pemakaian Watt saat ini.
                 </p>
             </div>
 
@@ -471,7 +546,7 @@
                     </div>
                 </div>
 
-                <!-- Table Container (Desktop/Tablet) -->
+                <!-- Table Container -->
                 <div class="overflow-x-auto hidden sm:block">
                     <table class="w-full text-left text-xs text-slate-300">
                         <thead class="bg-slate-900/80 text-slate-400 font-medium border-b border-slate-800">
@@ -486,14 +561,12 @@
                             </tr>
                         </thead>
                         <tbody id="log-table-body" class="divide-y divide-slate-800/60 font-mono">
-                            <!-- Dynamic Log Rows Inserted by JS -->
                         </tbody>
                     </table>
                 </div>
 
                 <!-- Card List (Mobile) -->
                 <div id="log-cards-mobile" class="sm:hidden space-y-2">
-                    <!-- Dynamic Log Cards Inserted by JS -->
                 </div>
             </div>
 
@@ -503,13 +576,13 @@
     <!-- Footer -->
     <footer class="max-w-7xl mx-auto px-4 lg:px-8 py-6 text-center text-xs text-slate-500 border-t border-slate-800/80 w-full mt-8">
         <p class="flex items-center justify-center gap-1.5 flex-wrap">
-            Dashboard Monitoring KWS-AC301 & ESP32
+            Dashboard Monitoring & Protection KWS-AC301 & ESP32
             <button type="button" class="info-icon-btn underline decoration-dotted !text-slate-500 hover:!text-cyan-400 text-xs"
                 data-info-title="Modbus RTU"
-                data-info-msg="Protokol komunikasi standar industri yang dipakai ESP32 untuk membaca data dari alat ukur listrik.">
+                data-info-msg="Protokol komunikasi industri RS485 yang dipakai ESP32 untuk membaca KWS-AC301.">
                 Modbus RTU
             </button>
-            • Sistem Kelistrikan IoT
+            • System Active
         </p>
     </footer>
 
@@ -519,7 +592,7 @@
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 class="font-bold text-slate-100 flex items-center gap-2">
                     <i data-lucide="sliders" class="w-5 h-5 text-cyan-400"></i>
-                    Pengaturan Dashboard
+                    Pengaturan Dashboard & Proteksi
                 </h3>
                 <button id="btn-close-modal" class="text-slate-400 hover:text-white p-1">
                     <i data-lucide="x" class="w-5 h-5"></i>
@@ -533,32 +606,20 @@
                     <p class="text-[10px] text-slate-500 mt-1">Kecepatan pembaruan data dari Cloud ke dashboard.</p>
                 </div>
 
-                <!-- Proteksi Overload Arus (Relay) -->
+                <!-- Proteksi Overload Arus -->
                 <div class="pt-4 mt-1 border-t border-slate-800/80">
                     <div class="flex items-center gap-2 mb-3">
                         <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i>
-                        <h4 class="font-semibold text-slate-200 text-[11px] uppercase tracking-wider">Proteksi Overload Arus (Relay)</h4>
-                    </div>
-
-                    <div class="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 mb-3">
-                        <div>
-                            <p class="text-slate-400 font-medium">Status Relay Saat Ini</p>
-                            <p id="card-status-relay-text" class="text-sm font-bold font-mono text-slate-300 mt-0.5">--</p>
-                            <p class="text-[10px] text-slate-500 mt-0.5">Rangkaian: <span id="card-relay-action" class="text-slate-400 font-medium">--</span></p>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer shrink-0 ml-3" title="Indikator status relay (read-only)">
-                            <input type="checkbox" id="toggle-relay" class="sr-only peer" disabled>
-                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
-                        </label>
+                        <h4 class="font-semibold text-slate-200 text-[11px] uppercase tracking-wider">Setting Ambang Overload Arus</h4>
                     </div>
 
                     <div>
-                        <label class="font-medium text-slate-300 mb-1 block">Ambang Batas Proteksi Arus</label>
+                        <label class="font-medium text-slate-300 mb-1 block">Batas Arus Maksimum (Ampere)</label>
                         <div class="relative">
                             <input type="number" id="setting-overload-limit" value="5.0" min="0.1" step="0.1" class="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3 pr-14 py-2 text-slate-200 focus:outline-none focus:border-rose-500 font-mono">
                             <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono tracking-wide">AMPERE</span>
                         </div>
-                        <p class="text-[10px] text-slate-500 mt-1">Nilai referensi yang ditampilkan di dashboard. Samakan dengan batas yang diprogram pada firmware ESP32 agar status overload konsisten antara alat dan tampilan.</p>
+                        <p class="text-[10px] text-slate-500 mt-1">Jika arus aktual melebihi batas ini, relay akan otomatis memutuskan beban (Trip/Clock).</p>
                     </div>
                 </div>
             </div>
@@ -569,7 +630,7 @@
         </div>
     </div>
 
-    <!-- Confirm Action Modal (Reset kWh / Reset History) -->
+    <!-- Confirm Action Modal -->
     <div id="modal-confirm" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm hidden">
         <div class="glass-panel max-w-sm w-full rounded-2xl p-6 space-y-4 border border-rose-900/50 shadow-2xl">
             <div class="flex items-center gap-3">
@@ -586,7 +647,7 @@
         </div>
     </div>
 
-    <!-- Info Popup Modal (Penjelasan Parameter/Istilah) -->
+    <!-- Info Popup Modal -->
     <div id="modal-info" class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm hidden">
         <div class="glass-panel max-w-sm w-full rounded-2xl p-6 space-y-4 border border-cyan-900/50 shadow-2xl">
             <div class="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
@@ -624,9 +685,12 @@
             frequency: 0.0,
             pf: 0.0,
             overload: false,
+            virtualSwitch: false,
+            relayState: false,
             overloadLimit: 5.0,
             lastUpdateAt: null,
             espUrl: 'https://monitoring-listrik-82199-default-rtdb.asia-southeast1.firebasedatabase.app/monitoring.json',
+            vSwitchUrl: 'https://monitoring-listrik-82199-default-rtdb.asia-southeast1.firebasedatabase.app/monitoring/virtual_switch.json',
             pollInterval: 1.0,
             tariffPerKWh: 1444.70,
             isConnected: null,
@@ -635,15 +699,27 @@
             chartBufferLength: 20
         };
 
-        // DOM Element Cache
+        // DOM Cache
         const el = {
             liveTime: document.getElementById('live-time'),
             statusBadge: document.getElementById('status-badge'),
             statusText: document.getElementById('status-text'),
             statusPing: document.getElementById('status-ping'),
             statusDot: document.getElementById('status-dot'),
-            connWarningBanner: document.getElementById('conn-warning-banner'),
             
+            // Banner Alert
+            connWarningBanner: document.getElementById('conn-warning-banner'),
+            bannerIconBg: document.getElementById('banner-icon-bg'),
+            bannerIcon: document.getElementById('banner-icon'),
+            bannerTitle: document.getElementById('banner-title'),
+            bannerDesc: document.getElementById('banner-desc'),
+
+            // Relay Controls
+            toggleVirtualSwitch: document.getElementById('toggle-virtual-switch'),
+            badgeRelayState: document.getElementById('badge-relay-state'),
+            labelCurrentLimit: document.getElementById('label-current-limit'),
+            badgeOverloadStatus: document.getElementById('badge-overload-status'),
+
             // Cards
             cardV: document.getElementById('card-val-v'),
             cardI: document.getElementById('card-val-i'),
@@ -654,16 +730,15 @@
             cardStatusV: document.getElementById('card-status-v'),
             cardPfQuality: document.getElementById('card-pf-quality'),
 
-            // Relay Overload Elements
-            toggleRelay: document.getElementById('toggle-relay'),
-            cardStatusRelayText: document.getElementById('card-status-relay-text'),
-            cardRelayAction: document.getElementById('card-relay-action'),
-            
+            // Progress Bar
+            iProgressBar: document.getElementById('i-progress-bar'),
+            iProgressText: document.getElementById('i-progress-text'),
+
             // Summary
             sumPower: document.getElementById('summary-power'),
             sumEnergy: document.getElementById('summary-energy'),
             sumCost: document.getElementById('summary-cost'),
-            sumPf: document.getElementById('summary-pf'),
+            sumCo2: document.getElementById('summary-co2'),
 
             // Calculator
             selectTariff: document.getElementById('select-tariff'),
@@ -674,13 +749,13 @@
             costMonth: document.getElementById('calc-cost-month'),
             costYear: document.getElementById('calc-cost-year'),
 
-            // Chart Labels
+            // Charts
             latestPVal: document.getElementById('latest-p-val'),
             latestIVal: document.getElementById('latest-i-val'),
             latestVVal: document.getElementById('latest-v-val'),
             btnClearCharts: document.getElementById('btn-clear-charts'),
 
-            // Settings Modal
+            // Settings
             modalSettings: document.getElementById('modal-settings'),
             btnOpenSettings: document.getElementById('btn-open-settings'),
             btnCloseModal: document.getElementById('btn-close-modal'),
@@ -696,14 +771,12 @@
             logCardsMobile: document.getElementById('log-cards-mobile'),
             lastUpdateText: document.getElementById('last-update-text'),
 
-            // Info Popup Modal
+            // Modals
             modalInfo: document.getElementById('modal-info'),
             infoTitle: document.getElementById('info-title'),
             infoMessage: document.getElementById('info-message'),
             btnInfoClose: document.getElementById('btn-info-close'),
             btnInfoCloseX: document.getElementById('btn-info-close-x'),
-
-            // Confirm Modal
             modalConfirm: document.getElementById('modal-confirm'),
             confirmTitle: document.getElementById('confirm-title'),
             confirmMessage: document.getElementById('confirm-message'),
@@ -721,12 +794,10 @@
                 grid: { color: 'rgba(51, 65, 85, 0.25)' },
                 ticks: { color: '#94a3b8', font: { size: 9 } }
             };
-
             if (minZero) {
                 yScaleConfig.min = 0;
                 yScaleConfig.beginAtZero = true;
             }
-
             return new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -748,15 +819,10 @@
                     animation: { duration: 150 },
                     interaction: { mode: 'index', intersect: false },
                     scales: {
-                        x: {
-                            grid: { color: 'rgba(51, 65, 85, 0.25)' },
-                            ticks: { display: false }
-                        },
+                        x: { grid: { color: 'rgba(51, 65, 85, 0.25)' }, ticks: { display: false } },
                         y: yScaleConfig
                     },
-                    plugins: {
-                        legend: { display: false }
-                    }
+                    plugins: { legend: { display: false } }
                 }
             });
         }
@@ -782,34 +848,25 @@
             return g;
         });
 
-        // Helper: Format Currency IDR
         function formatIDR(amount) {
             return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
         }
 
-        // Custom Toast Notification System
         function showToast(message, type = 'info') {
             const toast = document.createElement('div');
             const bgClass = type === 'success' ? 'bg-emerald-900 border-emerald-700 text-emerald-200' :
                              type === 'error' ? 'bg-rose-900 border-rose-700 text-rose-200' :
                              'bg-slate-900 border-slate-700 text-slate-200';
-            
             toast.className = `pointer-events-auto px-4 py-3 rounded-xl border text-xs shadow-xl backdrop-blur-md transition-all duration-300 transform translate-y-2 opacity-0 flex items-center gap-2 ${bgClass}`;
             toast.innerHTML = `<span>${message}</span>`;
-            
             el.toastContainer.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.classList.remove('translate-y-2', 'opacity-0');
-            }, 10);
-
+            setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
             setTimeout(() => {
                 toast.classList.add('opacity-0', 'translate-y-2');
                 setTimeout(() => toast.remove(), 300);
             }, 4000);
         }
 
-        // Update Clock
         function updateClock() {
             const now = new Date();
             el.liveTime.textContent = now.toLocaleTimeString('id-ID');
@@ -818,23 +875,17 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        // Menampilkan "Diperbarui X detik lalu" berdasarkan data terakhir masuk
         function updateLastUpdateText() {
             if (!state.isConnected || !state.lastUpdateAt) {
                 el.lastUpdateText.textContent = state.isConnected === false ? 'Data terputus' : 'Menunggu data...';
                 return;
             }
             const diffSec = Math.floor((Date.now() - state.lastUpdateAt) / 1000);
-            if (diffSec < 2) {
-                el.lastUpdateText.textContent = 'Diperbarui baru saja';
-            } else if (diffSec < 60) {
-                el.lastUpdateText.textContent = `Diperbarui ${diffSec} detik lalu`;
-            } else {
-                el.lastUpdateText.textContent = `Diperbarui ${Math.floor(diffSec / 60)} menit lalu`;
-            }
+            if (diffSec < 2) el.lastUpdateText.textContent = 'Diperbarui baru saja';
+            else if (diffSec < 60) el.lastUpdateText.textContent = `Diperbarui ${diffSec} detik lalu`;
+            else el.lastUpdateText.textContent = `Diperbarui ${Math.floor(diffSec / 60)} menit lalu`;
         }
 
-        // Status Connection UI Switcher
         function setConnectionStatus(online, text) {
             const previousState = state.isConnected;
             state.isConnected = online;
@@ -844,26 +895,23 @@
                 el.statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-400 text-xs font-medium";
                 el.statusPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
                 el.statusDot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500";
-                el.connWarningBanner.classList.add('hidden');
-
-                if (previousState !== true) {
-                    showToast('ESP32 Berhasil Terhubung!', 'success');
-                }
+                
+                if (previousState !== true) showToast('ESP32 Berhasil Terhubung!', 'success');
             } else {
                 el.statusBadge.className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-950/80 border border-rose-800 text-rose-400 text-xs font-medium";
                 el.statusPing.className = "hidden";
                 el.statusDot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500";
+
+                el.connWarningBanner.className = "glass-panel border-l-4 border-rose-500 bg-rose-950/40 p-4 rounded-2xl flex items-center justify-between transition-all duration-300";
+                el.bannerTitle.textContent = "ESP32 Belum Terhubung";
+                el.bannerDesc.textContent = "Data telemetri tidak ditampilkan. Pastikan modul ESP32 Anda telah menyala dan terhubung ke Wi-Fi / Cloud Firebase.";
                 el.connWarningBanner.classList.remove('hidden');
 
                 blankOutUI();
-
-                if (previousState !== false) {
-                    showToast('ESP32 Belum Terhubung', 'error');
-                }
+                if (previousState !== false) showToast('Koneksi ESP32 Terputus', 'error');
             }
         }
 
-        // Tampilan Kosong/Blank Jika ESP32 Belum Terhubung
         function blankOutUI() {
             el.cardV.textContent = '--';
             el.cardI.textContent = '--';
@@ -873,28 +921,26 @@
             el.cardPf.textContent = '--';
 
             el.cardStatusV.textContent = '--';
-            el.cardStatusV.className = 'text-slate-400 font-medium';
             el.cardPfQuality.textContent = '--';
-            el.cardPfQuality.className = 'text-slate-400 font-medium';
 
-            el.toggleRelay.checked = false;
-            el.cardStatusRelayText.textContent = '--';
-            el.cardStatusRelayText.className = 'text-sm font-bold font-mono text-slate-300';
-            el.cardRelayAction.textContent = '--';
-            el.cardRelayAction.className = 'text-slate-400 font-medium';
+            el.badgeRelayState.textContent = 'OFF (NORMAL)';
+            el.badgeRelayState.className = 'px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-xs font-mono font-bold';
 
             el.sumPower.textContent = '-- W';
             el.sumEnergy.textContent = '-- kWh';
             el.sumCost.textContent = 'Rp 0';
-            el.sumPf.textContent = '--';
+            el.sumCo2.textContent = '0.00 kg';
 
             el.costHour.textContent = 'Rp 0';
             el.costDay.textContent = 'Rp 0';
             el.costMonth.textContent = 'Rp 0';
             el.costYear.textContent = 'Rp 0';
+
+            el.iProgressBar.style.width = '0%';
+            el.iProgressText.textContent = '0%';
         }
 
-        // Render Data Telemetri di UI jika Terhubung
+        // Render Data Telemetri di UI
         function updateUI() {
             if (!state.isConnected) return;
 
@@ -904,6 +950,49 @@
             el.cardKwh.textContent = state.energy.toFixed(3);
             el.cardHz.textContent = state.frequency.toFixed(1);
             el.cardPf.textContent = state.pf.toFixed(2);
+
+            el.labelCurrentLimit.textContent = `${state.overloadLimit.toFixed(1)} A`;
+
+            // Update Progress Bar Arus
+            const iPercentage = Math.min(100, Math.max(0, (state.current / state.overloadLimit) * 100));
+            el.iProgressBar.style.width = `${iPercentage.toFixed(0)}%`;
+            el.iProgressText.textContent = `${iPercentage.toFixed(0)}%`;
+
+            if (iPercentage > 90) {
+                el.iProgressBar.className = "h-full bg-rose-500 transition-all duration-300";
+            } else if (iPercentage > 70) {
+                el.iProgressBar.className = "h-full bg-amber-400 transition-all duration-300";
+            } else {
+                el.iProgressBar.className = "h-full bg-cyan-400 transition-all duration-300";
+            }
+
+            // Update Status Banner Overload Alert vs Normal
+            if (state.overload) {
+                el.connWarningBanner.className = "glass-panel border-l-4 border-rose-500 alert-overload-active p-4 rounded-2xl flex items-center justify-between transition-all duration-300";
+                el.bannerTitle.textContent = "PERINGATAN: ARUS OVERLOAD TERDETEKSI!";
+                el.bannerTitle.className = "text-sm font-bold text-rose-200 animate-pulse";
+                el.bannerDesc.textContent = `Arus terukur (${state.current.toFixed(2)} A) telah melebihi batas proteksi (${state.overloadLimit.toFixed(1)} A). Relay telah memutuskan beban otomatis!`;
+                el.connWarningBanner.classList.remove('hidden');
+
+                el.badgeOverloadStatus.textContent = "OVERLOAD (TRIP)";
+                el.badgeOverloadStatus.className = "px-2.5 py-1 rounded-lg bg-rose-950 text-rose-400 border border-rose-800 text-[11px] font-mono font-semibold animate-pulse";
+            } else {
+                el.connWarningBanner.classList.add('hidden');
+                el.badgeOverloadStatus.textContent = "AMAN";
+                el.badgeOverloadStatus.className = "px-2.5 py-1 rounded-lg bg-emerald-950/80 text-emerald-400 border border-emerald-800 text-[11px] font-mono font-semibold";
+            }
+
+            // Update Status Badge Relay Output
+            el.relayState = state.overload || state.virtualSwitch;
+            if (el.relayState) {
+                el.badgeRelayState.textContent = state.overload ? 'TRIP (OVERLOAD)' : 'ON (UJI V-SWITCH)';
+                el.badgeRelayState.className = state.overload ? 
+                    'px-3 py-1 rounded-full bg-rose-900/80 text-rose-300 border border-rose-700 text-xs font-mono font-bold animate-pulse' : 
+                    'px-3 py-1 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 text-xs font-mono font-bold';
+            } else {
+                el.badgeRelayState.textContent = 'OFF (NORMAL)';
+                el.badgeRelayState.className = 'px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-xs font-mono font-bold';
+            }
 
             el.cardStatusV.textContent = state.voltage > 200 ? 'Normal' : 'Rendah/Mati';
             el.cardStatusV.className = state.voltage > 200 ? 'text-emerald-400 font-medium' : 'text-amber-400 font-medium';
@@ -916,24 +1005,12 @@
                 el.cardPfQuality.className = 'text-amber-400 font-medium';
             }
 
-            // Update Status Slide Switch Relay Overload
-            if (state.overload) {
-                el.toggleRelay.checked = true;
-                el.cardStatusRelayText.textContent = 'OVERLOAD TRIGGERED!';
-                el.cardStatusRelayText.className = 'text-sm font-bold font-mono text-rose-400';
-                el.cardRelayAction.textContent = 'Terbuka (TRIP / OFF)';
-                el.cardRelayAction.className = 'text-rose-400 font-medium';
-            } else {
-                el.toggleRelay.checked = false;
-                el.cardStatusRelayText.textContent = 'Normal (Aman)';
-                el.cardStatusRelayText.className = 'text-sm font-bold font-mono text-emerald-400';
-                el.cardRelayAction.textContent = 'Tertutup (ON)';
-                el.cardRelayAction.className = 'text-emerald-400 font-medium';
-            }
-
             el.sumPower.textContent = `${state.power.toFixed(1)} W`;
             el.sumEnergy.textContent = `${state.energy.toFixed(3)} kWh`;
-            el.sumPf.textContent = state.pf.toFixed(2);
+
+            // Carbon Footprint Calculation (0.85 kg CO2 per kWh)
+            const co2Emission = state.energy * 0.85;
+            el.sumCo2.textContent = `${co2Emission.toFixed(2)} kg`;
 
             const totalBiayaPemakaian = state.energy * state.tariffPerKWh;
             el.sumCost.textContent = formatIDR(totalBiayaPemakaian);
@@ -998,7 +1075,6 @@
                 </tr>
             `).join('');
 
-            // Versi ringkas untuk layar mobile (menggantikan tabel yang sempit)
             el.logCardsMobile.innerHTML = telemetryLogs.map(log => `
                 <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs">
                     <div class="flex items-center justify-between mb-2">
@@ -1014,7 +1090,7 @@
             `).join('');
         }
 
-        // ESP32 Polling Engine dengan Heartbeat Checker
+        // ESP32 Polling Engine
         async function fetchESP32Data() {
             try {
                 const response = await fetch(state.espUrl, { method: 'GET', cache: 'no-cache' });
@@ -1043,7 +1119,12 @@
                     state.energy = data.energy ?? 0.0;
                     state.frequency = data.frequency ?? 0.0;
                     state.pf = data.pf ?? 0.0;
-                    state.overload = data.overload ?? false; // Status Overload dari Firebase
+                    state.overload = data.overload_alert ?? false;
+                    state.virtualSwitch = data.virtual_switch ?? state.virtualSwitch;
+                    state.overloadLimit = data.limit ?? state.overloadLimit;
+
+                    // Sync Virtual Switch Checkbox
+                    el.toggleVirtualSwitch.checked = state.virtualSwitch;
 
                     state.lastUpdateAt = Date.now();
                     setConnectionStatus(true, 'ESP32 Terhubung');
@@ -1056,17 +1137,31 @@
             }
         }
 
+        // Handler Virtual Switch Uji Relay
+        el.toggleVirtualSwitch.addEventListener('change', async (e) => {
+            const isChecked = e.target.checked;
+            state.virtualSwitch = isChecked;
+
+            try {
+                await fetch(state.vSwitchUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(isChecked)
+                });
+                showToast(`Pengujian Relay: ${isChecked ? 'ON (Diaktifkan)' : 'OFF (Dinonaktifkan)'}`, isChecked ? 'success' : 'info');
+            } catch (err) {
+                showToast('Gagal mengirim perintah pengujian relay ke Cloud', 'error');
+                e.target.checked = !isChecked;
+            }
+        });
+
         let dataLoopInterval;
 
         function startDataLoop() {
             if (dataLoopInterval) clearInterval(dataLoopInterval);
-            
             fetchESP32Data();
-
             const intervalMs = state.pollInterval * 1000;
-            dataLoopInterval = setInterval(() => {
-                fetchESP32Data();
-            }, intervalMs);
+            dataLoopInterval = setInterval(() => { fetchESP32Data(); }, intervalMs);
         }
 
         // Tariff Selector Handler
@@ -1087,7 +1182,7 @@
             if (state.isConnected) updateUI();
         });
 
-        // Clear All Charts
+        // Clear Charts
         el.btnClearCharts.addEventListener('click', () => {
             [chartPower, chartCurrent, chartVoltage].forEach(chart => {
                 chart.data.labels = [];
@@ -1097,41 +1192,45 @@
             showToast('Ketiga grafik berhasil dibersihkan', 'info');
         });
 
-        // Settings Modal Handlers
+        // Settings Modal
         el.btnOpenSettings.addEventListener('click', () => el.modalSettings.classList.remove('hidden'));
         el.btnCloseModal.addEventListener('click', () => el.modalSettings.classList.add('hidden'));
 
-        el.btnSaveSettings.addEventListener('click', () => {
+        el.btnSaveSettings.addEventListener('click', async () => {
             state.pollInterval = parseFloat(el.settingPollInterval.value) || 1.0;
-            state.overloadLimit = parseFloat(el.settingOverloadLimit.value) || 5.0;
+            const newLimit = parseFloat(el.settingOverloadLimit.value) || 5.0;
+            state.overloadLimit = newLimit;
+
+            // Push limit baru ke Firebase
+            try {
+                await fetch('https://monitoring-listrik-82199-default-rtdb.asia-southeast1.firebasedatabase.app/monitoring/limit.json', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newLimit)
+                });
+            } catch(e) {}
 
             el.modalSettings.classList.add('hidden');
             startDataLoop();
-            showToast(`Pengaturan disimpan! Interval polling: ${state.pollInterval} detik, Ambang overload: ${state.overloadLimit} A`, 'success');
+            showToast(`Pengaturan disimpan! Ambang batas overload: ${state.overloadLimit} A`, 'success');
         });
 
-        // ===== Info Popup (Penjelasan Istilah/Parameter) =====
+        // Info Popup Modal
         function showInfoModal(title, message) {
             el.infoTitle.textContent = title;
             el.infoMessage.textContent = message;
             el.modalInfo.classList.remove('hidden');
         }
-        function closeInfoModal() {
-            el.modalInfo.classList.add('hidden');
-        }
+        function closeInfoModal() { el.modalInfo.classList.add('hidden'); }
         el.btnInfoClose.addEventListener('click', closeInfoModal);
         el.btnInfoCloseX.addEventListener('click', closeInfoModal);
-        el.modalInfo.addEventListener('click', (e) => {
-            if (e.target === el.modalInfo) closeInfoModal();
-        });
+        el.modalInfo.addEventListener('click', (e) => { if (e.target === el.modalInfo) closeInfoModal(); });
         document.addEventListener('click', (e) => {
             const btn = e.target.closest('.info-icon-btn');
-            if (btn) {
-                showInfoModal(btn.dataset.infoTitle, btn.dataset.infoMsg);
-            }
+            if (btn) showInfoModal(btn.dataset.infoTitle, btn.dataset.infoMsg);
         });
 
-        // ===== Modal Konfirmasi untuk Aksi yang Tidak Bisa Dibatalkan =====
+        // Confirm Modal
         let confirmCallback = null;
         function askConfirm(title, message, onConfirm) {
             el.confirmTitle.textContent = title;
@@ -1150,11 +1249,10 @@
             if (cb) cb();
         });
 
-        // Reset kWh Counter via Cloud
+        // Reset kWh
         async function performResetKwh() {
             state.energy = 0.00;
             if (state.isConnected) updateUI();
-
             try {
                 const resetEndpoint = 'https://monitoring-listrik-82199-default-rtdb.asia-southeast1.firebasedatabase.app/monitoring/reset.json';
                 await fetch(resetEndpoint, {
@@ -1168,14 +1266,10 @@
             }
         }
         el.btnResetKwh.addEventListener('click', () => {
-            askConfirm(
-                'Reset Akumulasi kWh?',
-                'Total energi (kWh) akan dikembalikan ke 0 dan tidak bisa dikembalikan. Lanjutkan?',
-                performResetKwh
-            );
+            askConfirm('Reset Akumulasi kWh?', 'Total energi (kWh) akan dikembalikan ke 0. Lanjutkan?', performResetKwh);
         });
 
-        // Reset Log History Table
+        // Reset History
         function performClearLogs() {
             telemetryLogs.length = 0;
             el.logTableBody.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-slate-500 italic">Riwayat log telah dibersihkan</td></tr>`;
@@ -1183,25 +1277,19 @@
             showToast('Riwayat log telemetri berhasil di-reset', 'info');
         }
         el.btnClearLogs.addEventListener('click', () => {
-            askConfirm(
-                'Hapus Riwayat Log?',
-                'Seluruh riwayat telemetri yang tersimpan di tabel akan dihapus secara permanen. Lanjutkan?',
-                performClearLogs
-            );
+            askConfirm('Hapus Riwayat Log?', 'Seluruh riwayat telemetri akan dihapus permanen. Lanjutkan?', performClearLogs);
         });
 
-        // Export Logs to CSV
+        // CSV Export
         el.btnExportCsv.addEventListener('click', () => {
             if (telemetryLogs.length === 0) {
                 showToast('Belum ada data riwayat untuk diekspor', 'error');
                 return;
             }
-
             let csvContent = "data:text/csv;charset=utf-8,Waktu,Tegangan_V,Arus_A,Daya_W,Energy_kWh,Frekuensi_Hz,PowerFactor\n";
             telemetryLogs.forEach(row => {
                 csvContent += `${row.time},${row.v},${row.i},${row.p},${row.kwh},${row.hz},${row.pf}\n`;
             });
-
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
@@ -1209,7 +1297,6 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
             showToast('File CSV berhasil diunduh', 'success');
         });
 
